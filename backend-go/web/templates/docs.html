@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{{.Title}}</title>
+    <meta name="description" content="Dokumentasi API deteksi plat nomor (YOLO + OCR + Samsat lookup)." />
+    <link rel="stylesheet" href="/static/css/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container">
+        <a class="brand" href="/" aria-label="Home">
+          <span class="logo"></span>
+          <span class="brand-text">{{.Brand}}</span>
+        </a>
+        <nav class="nav">
+          <a class="nav-link" href="#quickstart">Quick Start</a>
+          <a class="nav-link" href="#endpoint">Endpoint</a>
+          <a class="nav-link" href="#tryit">Try It</a>
+          <a class="nav-link" href="/openapi.json" target="_blank" rel="noopener">OpenAPI</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero container reveal">
+        <div class="hero-left">
+          <div class="badge-row">
+            <span class="badge badge-ok">Production-ready</span>
+            <span class="badge badge-soft">Same-origin Try It</span>
+          </div>
+          <h1 class="hero-title">{{.Heading}}</h1>
+          <p class="hero-subtitle">
+            API ini dibuat untuk mendeteksi dan membaca plat nomor kendaraan (motor maupun mobil) dari sebuah foto menggunakan deep learning.
+            Pipeline-nya: upload gambar → YOLOv8 mendeteksi area plat → OCR membaca teks → normalisasi format plat → lookup wilayah Samsat → response JSON.
+            Cocok untuk integrasi ke aplikasi mobile (Flutter/Android) dengan output yang konsisten dan mudah dipakai.
+          </p>
+          <div class="hero-cta">
+            <a class="btn btn-primary" href="#tryit">Coba Sekarang</a>
+            <a class="btn btn-ghost" href="#endpoint">Lihat Endpoint</a>
+          </div>
+          <div class="meta-line">
+            Base URL: <code id="baseUrl"></code>
+          </div>
+        </div>
+        <div class="hero-right">
+          <div class="code-card">
+            <div class="code-card-top">
+              <span class="dot dot-red"></span>
+              <span class="dot dot-yellow"></span>
+              <span class="dot dot-green"></span>
+              <span class="code-card-title">Response (Success)</span>
+            </div>
+            <pre class="code" id="sampleSuccess"><code></code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="quickstart" class="container grid-2 reveal">
+        <div class="card">
+          <div class="card-header">
+            <h2>Quick Start</h2>
+            <p>Contoh cepat untuk cURL dan Postman.</p>
+          </div>
+          <div class="card-body">
+            <h3>cURL</h3>
+            <pre class="code"><code id="curlSnippet"></code></pre>
+            <h3>Postman</h3>
+            <ul class="list">
+              <li>Method: <code>POST</code></li>
+              <li>URL: <code id="postmanUrl"></code></li>
+              <li>Body: <code>form-data</code></li>
+              <li>Field: <code>image</code> (type: File)</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Health</h2>
+            <p>Cek server hidup + request id.</p>
+          </div>
+          <div class="card-body">
+            <pre class="code"><code id="healthSnippet"></code></pre>
+            <div class="hint">Tips: response akan menyertakan header <code>X-Request-Id</code>.</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="endpoint" class="container reveal">
+        <div class="section-head">
+          <h2>Endpoint</h2>
+          <p>Kontrak request/response yang konsisten dan siap dipakai mobile (Flutter/Dart).</p>
+        </div>
+
+        <div class="card">
+          <div class="endpoint-row">
+            <span class="method method-post">POST</span>
+            <span class="path">/detect</span>
+            <span class="pill">multipart/form-data</span>
+          </div>
+
+          <div class="card-body">
+            <div class="kv">
+              <div class="kv-k">Field</div>
+              <div class="kv-v"><code>image</code> (file)</div>
+              <div class="kv-k">Response</div>
+              <div class="kv-v">JSON envelope: <code>status</code>, <code>request_id</code>, <code>processing_time_ms</code>, <code>data</code>, <code>meta</code></div>
+            </div>
+
+            <div class="grid-2">
+              <div>
+                <h3>Success (200)</h3>
+                <pre class="code"><code id="successJson"></code></pre>
+              </div>
+              <div>
+                <h3>Error (4xx/5xx)</h3>
+                <pre class="code"><code id="errorJson"></code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tryit" class="container reveal">
+        <div class="section-head">
+          <h2>Try It</h2>
+          <p>Upload gambar dan lihat JSON response langsung (tanpa CORS, same origin).</p>
+        </div>
+
+        <div class="card">
+          <div class="card-body">
+            <div class="tryit">
+              <div class="tryit-left">
+                <div class="uploader">
+                  <div class="filepick">
+                    <input id="fileInput" class="filepick-input" type="file" accept="image/*" />
+                    <input id="cameraInput" class="filepick-input" type="file" accept="image/*" capture="environment" />
+                    <label for="fileInput" class="btn btn-ghost filepick-btn" role="button">Galeri</label>
+                    <label for="cameraInput" class="btn btn-primary filepick-btn" role="button">Kamera</label>
+                    <span id="fileName" class="filepick-name">Belum ada file</span>
+                  </div>
+                  <div class="preview" id="preview">
+                    <div class="preview-empty">
+                      <div class="preview-icon"></div>
+                      <div class="preview-text">Pilih gambar untuk preview</div>
+                    </div>
+                    <img id="previewImg" alt="Preview" />
+                  </div>
+                  <div class="actions">
+                    <button id="sendBtn" class="btn btn-primary" type="button">
+                      <span class="btn-label">Kirim</span>
+                      <span class="btn-spinner" aria-hidden="true"></span>
+                    </button>
+                    <button id="resetBtn" class="btn btn-ghost" type="button">Reset</button>
+                  </div>
+                  <div class="subline">
+                    <span id="timing"></span>
+                    <span id="reqid"></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tryit-right">
+                <div class="panel">
+                  <div class="panel-head">
+                    <span>Response</span>
+                    <span class="panel-status" id="panelStatus"></span>
+                  </div>
+                  <div class="panel-body" id="panelBody">
+                    <div class="skeleton" id="skeleton">
+                      <div class="sk-line w-80"></div>
+                      <div class="sk-line w-95"></div>
+                      <div class="sk-line w-60"></div>
+                      <div class="sk-line w-90"></div>
+                      <div class="sk-line w-70"></div>
+                    </div>
+                    <pre class="code code-scroll" id="responsePre"><code id="responseCode"></code></pre>
+                  </div>
+                  <div class="panel-foot">
+                    <button id="copyBtn" class="btn btn-ghost btn-small" type="button">Copy JSON</button>
+                    <span class="hint">Menampilkan <code>processing_time_ms</code> dari API + waktu request di browser.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer container">
+        <div class="footer-inner">
+          <span>© {{.Year}} kuraimos</span>
+          <span class="sep">·</span>
+          <a href="/docs">Docs</a>
+          <span class="sep">·</span>
+          <a href="/openapi.json" target="_blank" rel="noopener">OpenAPI</a>
+        </div>
+      </footer>
+    </main>
+
+    <script id="docsSampleSuccess" type="application/json">{{.SampleSuccessJSON}}</script>
+    <script id="docsSampleError" type="application/json">{{.SampleErrorJSON}}</script>
+    <script src="/static/js/app.js" defer></script>
+  </body>
+</html>
