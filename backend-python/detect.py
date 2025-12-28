@@ -91,10 +91,11 @@ def detect_plate(image_path: str) -> dict:
             pass
 
         # Baca gambar pakai PIL (hindari warning OpenCV imread)
+        # iPhone sering menyimpan rotasi di EXIF orientation, jadi harus di-transpose dulu.
         try:
-            from PIL import Image  # type: ignore
+            from PIL import Image, ImageOps  # type: ignore
 
-            img_pil = Image.open(image_path).convert("RGB")
+            img_pil = ImageOps.exif_transpose(Image.open(image_path)).convert("RGB")
             img = np.array(img_pil)
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
         except Exception:
