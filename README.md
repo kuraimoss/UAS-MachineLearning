@@ -45,7 +45,7 @@ go run ./cmd/server
 Buka docs:
 - `http://localhost:8080/` (Docs + Try It)
 
-## Langkah Deployment ke GCP (detail)
+## Langkah Deployment ke GCP
 
 1. Buat VM di Google Cloud Platform (Ubuntu), lalu buka firewall untuk port 22 (SSH), 80 (HTTP), dan 8080 (app).
 2. SSH ke VM, lalu install kebutuhan:
