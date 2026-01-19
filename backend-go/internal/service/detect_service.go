@@ -35,11 +35,15 @@ func (s *DetectService) Detect(ctx context.Context, imagePath string) (model.Det
 		return model.DetectData{}, model.DetectMeta{}, err
 	}
 
-	plateForAPI := plate.Cleaned
-	if strings.TrimSpace(plateForAPI) == "" {
-		plateForAPI = plate.Raw
+	plateRaw := plate.Raw
+	if strings.TrimSpace(plateRaw) == "" {
+		plateRaw = plate.Cleaned
 	}
-	plateRawNoSpace := util.NormalizePlateRaw(plateForAPI)
+	plateForFormat := plate.Cleaned
+	if strings.TrimSpace(plateForFormat) == "" {
+		plateForFormat = plateRaw
+	}
+	plateRawNoSpace := util.NormalizePlateRaw(plateForFormat)
 	if plateRawNoSpace == "" {
 		return model.DetectData{}, model.DetectMeta{}, errx.New("OCR_EMPTY", "hasil OCR kosong", http.StatusUnprocessableEntity)
 	}
@@ -51,7 +55,7 @@ func (s *DetectService) Detect(ctx context.Context, imagePath string) (model.Det
 	components, formatted := util.SplitAndFormatPlate(plateRawNoSpace)
 	data := model.DetectData{
 		Plate: model.PlateInfo{
-			Raw:        plateRawNoSpace,
+			Raw:        plateRaw,
 			Formatted:  formatted,
 			Confidence: plate.Confidence,
 			Components: components,
@@ -61,7 +65,7 @@ func (s *DetectService) Detect(ctx context.Context, imagePath string) (model.Det
 	meta := model.DetectMeta{
 		Model: model.ModelMeta{
 			YOLO:     envOr("YOLO_META_NAME", "YOLOv8 custom"),
-			OCR:      envOr("OCR_META_NAME", "TrOCR"),
+			OCR:      envOr("OCR_META_NAME", "PaddleOCR"),
 			Language: envOr("OCR_LANG", "id"),
 		},
 	}
@@ -74,7 +78,7 @@ func (s *DetectService) Detect(ctx context.Context, imagePath string) (model.Det
 	scrapeCtx, cancel := context.WithTimeout(ctx, s.cfg.ScrapeTimeout)
 	defer cancel()
 
-	vr, err := s.samsat.LookupByPlate(scrapeCtx, data.Plate.Raw)
+	vr, err := s.samsat.LookupByPlate(scrapeCtx, plateRawNoSpace)
 	if err != nil {
 		httpapi.Logger(ctx).Warn("vehicle_region lookup failed", "error", err.Error())
 		meta.Warnings = append(meta.Warnings, "vehicle_region lookup failed")
@@ -94,4 +98,3 @@ func (s *DetectService) Detect(ctx context.Context, imagePath string) (model.Det
 	}
 	return data, meta, nil
 }
-

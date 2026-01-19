@@ -1,6 +1,5 @@
 import json
 import os
-import re
 import sys
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
@@ -30,8 +29,7 @@ def _parse_image_path(argv: list[str]) -> str | None:
 
 
 YOLO_MODEL = None
-TROCR_PROCESSOR = None
-TROCR_MODEL = None
+PADDLE_OCR = None
 
 
 def _load_yolo():
@@ -48,30 +46,21 @@ def _load_yolo():
     return YOLO_MODEL
 
 
-def _load_trocr():
-    global TROCR_PROCESSOR, TROCR_MODEL
-    if TROCR_PROCESSOR is not None and TROCR_MODEL is not None:
-        return TROCR_PROCESSOR, TROCR_MODEL
+def _load_paddle_ocr():
+    global PADDLE_OCR
+    if PADDLE_OCR is not None:
+        return PADDLE_OCR
 
     buf_out = StringIO()
     buf_err = StringIO()
     with redirect_stdout(buf_out), redirect_stderr(buf_err):
-        import torch  # type: ignore
-        from transformers import (  # type: ignore
-            TrOCRProcessor,
-            VisionEncoderDecoderModel,
-        )
+        # Force CPU-only Paddle runtime
+        os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
+        from paddleocr import PaddleOCR  # type: ignore
 
-        model_name = os.getenv("OCR_MODEL_NAME", "microsoft/trocr-base-printed").strip()
-        device = os.getenv("OCR_DEVICE", "").strip() or ("cuda" if torch.cuda.is_available() else "cpu")
+        PADDLE_OCR = PaddleOCR(lang="en", use_angle_cls=True, use_gpu=False, show_log=False)
 
-        processor = TrOCRProcessor.from_pretrained(model_name)
-        model = VisionEncoderDecoderModel.from_pretrained(model_name)
-        model.to(device)
-        model.eval()
-
-    TROCR_PROCESSOR, TROCR_MODEL = processor, model
-    return TROCR_PROCESSOR, TROCR_MODEL
+    return PADDLE_OCR
 
 
 def detect_plate(image_path: str) -> dict:
@@ -90,15 +79,9 @@ def detect_plate(image_path: str) -> dict:
         except Exception:
             pass
 
-        # Baca gambar pakai PIL (hindari warning OpenCV imread)
-        # iPhone sering menyimpan rotasi di EXIF orientation, jadi harus di-transpose dulu.
-        try:
-            from PIL import Image, ImageOps  # type: ignore
-
-            img_pil = ImageOps.exif_transpose(Image.open(image_path)).convert("RGB")
-            img = np.array(img_pil)
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        except Exception:
+        # Baca gambar dengan OpenCV (selaras dengan paddleOCR.py)
+        img = cv2.imread(image_path)
+        if img is None:
             return {"error": "Gambar tidak ditemukan atau tidak bisa dibaca"}
 
         model = _load_yolo()
@@ -113,53 +96,58 @@ def detect_plate(image_path: str) -> dict:
             return {"error": "Plat tidak terdeteksi"}
 
         boxes = results[0].boxes
-        best_idx = int(boxes.conf.argmax().item())
+        # Pakai box pertama agar konsisten dengan paddleOCR.py
+        x1, y1, x2, y2 = boxes.xyxy[0].cpu().numpy().astype(int).tolist()
+        confidence = float(boxes.conf[0].item())
 
-        x1, y1, x2, y2 = boxes.xyxy[best_idx].cpu().numpy().astype(int).tolist()
-        confidence = float(boxes.conf[best_idx].item())
-
-        # crop aman
+        # crop aman + padding supaya huruf tepi tidak terpotong
         h, w = img.shape[:2]
-        x1 = max(0, min(w - 1, x1))
-        x2 = max(0, min(w, x2))
-        y1 = max(0, min(h - 1, y1))
-        y2 = max(0, min(h, y2))
+        pad_x = int((x2 - x1) * 0.08)
+        pad_y = int((y2 - y1) * 0.12)
+        x1 = max(0, min(w - 1, x1 - pad_x))
+        x2 = max(0, min(w, x2 + pad_x))
+        y1 = max(0, min(h - 1, y1 - pad_y))
+        y2 = max(0, min(h, y2 + pad_y))
         if x2 <= x1 or y2 <= y1:
             return {"error": "Crop plat tidak valid"}
 
         plate_img = img[y1:y2, x1:x2]
 
         # FIX WAJIB: perbesar plat sebelum OCR (sesuai snippet)
-        plate_img = cv2.resize(plate_img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        plate_img = cv2.resize(plate_img, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+        # Debug: simpan crop terakhir untuk dibandingkan
+        try:
+            cv2.imwrite(str(_script_dir() / "last_crop.jpg"), plate_img)
+        except Exception:
+            pass
 
-        # OCR TroCR (sesuai snippet kamu: processor + model.generate)
-        processor, ocr_model = _load_trocr()
-        device = next(ocr_model.parameters()).device
+        # OCR PaddleOCR
+        plate_gray = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY)
+        plate_gray = cv2.GaussianBlur(plate_gray, (3, 3), 0)
+        _, plate_th = cv2.threshold(plate_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        ocr_img = cv2.cvtColor(plate_th, cv2.COLOR_GRAY2BGR)
+        # Debug: simpan hasil threshold (selaras dengan paddleOCR.py)
+        try:
+            cv2.imwrite(str(_script_dir() / "last_crop_th.jpg"), ocr_img)
+        except Exception:
+            pass
 
-        from PIL import Image  # type: ignore
-        import torch  # type: ignore
-
-        plate_pil = Image.fromarray(cv2.cvtColor(plate_img, cv2.COLOR_BGR2RGB))
-        pixel_values = processor(images=plate_pil, return_tensors="pt").pixel_values.to(device)
-
-        with torch.no_grad():
-            generated_ids = ocr_model.generate(
-                pixel_values,
-                max_length=16,
-                num_beams=5,
-                early_stopping=True,
-            )
-
-        text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-
-        cleaned_text = (text or "").upper()
-        cleaned_text = re.sub(r"[^A-Z0-9]", "", cleaned_text)
+        ocr = _load_paddle_ocr()
+        # OCR dua jalur: warna asli + threshold, pilih hasil terbaik
+        results = []
+        for oimg in (plate_img, ocr_img):
+            result = ocr.ocr(oimg, cls=True)
+            texts = []
+            for line in result:
+                for word in line:
+                    texts.append(word[1][0])
+            results.append(" ".join(texts).strip())
 
         # Final cleaning untuk plat Indonesia (siap dipakai Go scraper)
-        _raw, cleaned_plate = clean_ocr_text([cleaned_text])
+        raw_text, cleaned_plate = clean_ocr_text([r for r in results if r])
 
         return {
-            "plate_raw": text,
+            "plate_raw": raw_text,
             "plate_cleaned": cleaned_plate,
             "confidence": round(confidence, 4),
         }
