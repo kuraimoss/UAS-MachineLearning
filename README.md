@@ -45,25 +45,81 @@ go run ./cmd/server
 Buka docs:
 - `http://localhost:8080/` (Docs + Try It)
 
-## Langkah Deployment ke GCP (versi laporan siswa)
+## Langkah Deployment ke GCP (detail)
 
-1. Siapkan VM di Google Cloud Platform, lalu buka port aplikasi di firewall (misalnya 8080).
-2. Install Go, Python, dan pip di VM, lalu download source code project.
-3. Masuk ke `backend-python` dan install dependency:
+1. Buat VM di Google Cloud Platform (Ubuntu), lalu buka firewall untuk port 22 (SSH), 80 (HTTP), dan 8080 (app).
+2. SSH ke VM, lalu install kebutuhan:
    ```bash
-   python -m pip install -r requirements.txt
+   sudo apt update
+   sudo apt install -y git python3 python3-pip nginx
+   sudo snap install go --classic
    ```
-4. Pastikan model YOLO ada di `backend-python/model/best.pt`.
-5. Set environment variable:
-   - `YOLO_PY_SCRIPT` (path ke `backend-python/detect.py`)
-   - `PYTHON_BIN` (path ke python)
-   - opsional: `ADDR`, `YOLO_TIMEOUT_SECONDS`, dll.
-6. Jalankan backend Go dari `backend-go`:
+3. Clone project ke VM:
    ```bash
-   go run ./cmd/server
+   git clone <repo-url>
+   cd UAS
    ```
-7. Pasang Nginx sebagai reverse proxy supaya project bisa diakses lewat domain.
-8. Saat presentasi, tampilkan halaman docs di `http://<IP-VM>/` (via Nginx) dan uji endpoint `/detect`.
+4. Install dependency Python:
+   ```bash
+   cd backend-python
+   python3 -m pip install -r requirements.txt
+   ```
+5. Pastikan model YOLO tersedia di `backend-python/model/best.pt`.
+6. Set environment variable agar Go bisa memanggil Python:
+   ```bash
+   export YOLO_PY_SCRIPT="/home/<user>/UAS/backend-python/detect.py"
+   export PYTHON_BIN="/usr/bin/python3"
+   export ADDR=":8080"
+   ```
+7. Build dan jalankan backend Go:
+   ```bash
+   cd /home/<user>/UAS/backend-go
+   go build -o server ./cmd/server
+   ./server
+   ```
+8. (Opsional) Jalankan sebagai service agar auto-start:
+   ```bash
+   sudo tee /etc/systemd/system/plate.service > /dev/null <<'EOF'
+   [Unit]
+   Description=Plate Detection API
+   After=network.target
+
+   [Service]
+   WorkingDirectory=/home/<user>/UAS/backend-go
+   Environment=YOLO_PY_SCRIPT=/home/<user>/UAS/backend-python/detect.py
+   Environment=PYTHON_BIN=/usr/bin/python3
+   Environment=ADDR=:8080
+   ExecStart=/home/<user>/UAS/backend-go/server
+   Restart=always
+   RestartSec=3
+
+   [Install]
+   WantedBy=multi-user.target
+   EOF
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now plate.service
+   ```
+9. Konfigurasi Nginx sebagai reverse proxy (akses lewat domain atau IP publik):
+   ```bash
+   sudo tee /etc/nginx/sites-available/plate.conf > /dev/null <<'EOF'
+   server {
+       listen 80;
+       server_name <domain-atau-ip>;
+
+       location / {
+           proxy_pass http://127.0.0.1:8080;
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+       }
+   }
+   EOF
+   sudo ln -s /etc/nginx/sites-available/plate.conf /etc/nginx/sites-enabled/plate.conf
+   sudo nginx -t
+   sudo systemctl restart nginx
+   ```
+10. Saat presentasi, buka `http://<domain-atau-ip>/` untuk halaman docs dan lakukan uji endpoint `/detect` dengan upload gambar.
 
 ## Testing dengan Postman
 
