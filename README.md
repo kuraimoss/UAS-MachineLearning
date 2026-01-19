@@ -45,6 +45,26 @@ go run ./cmd/server
 Buka docs:
 - `http://localhost:8080/` (Docs + Try It)
 
+## Langkah Deployment ke GCP (versi laporan siswa)
+
+1. Siapkan VM di Google Cloud Platform, lalu buka port aplikasi di firewall (misalnya 8080).
+2. Install Go, Python, dan pip di VM, lalu download source code project.
+3. Masuk ke `backend-python` dan install dependency:
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
+4. Pastikan model YOLO ada di `backend-python/model/best.pt`.
+5. Set environment variable:
+   - `YOLO_PY_SCRIPT` (path ke `backend-python/detect.py`)
+   - `PYTHON_BIN` (path ke python)
+   - opsional: `ADDR`, `YOLO_TIMEOUT_SECONDS`, dll.
+6. Jalankan backend Go dari `backend-go`:
+   ```bash
+   go run ./cmd/server
+   ```
+7. Pasang Nginx sebagai reverse proxy supaya project bisa diakses lewat domain.
+8. Saat presentasi, tampilkan halaman docs di `http://<IP-VM>/` (via Nginx) dan uji endpoint `/detect`.
+
 ## Testing dengan Postman
 
 Request:
